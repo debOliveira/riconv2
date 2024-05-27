@@ -1,0 +1,17 @@
+{
+    "terminal.integrated.defaultProfile.linux": "bash",
+    "terminal.integrated.profiles.linux": {
+        "bash": {
+            "path": "bash",
+            "icon": "terminal-bash",
+            "args": [
+                "--init-file",
+                ".bashrc"
+            ]
+        }
+    },
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.autoImportCompletions": false,
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "eeyore.yapf"
+}

@@ -83,7 +83,7 @@ def main(args):
     '''DATA LOADING'''
     log_string('Load dataset ...')
     data_path = '../data/modelnet40_normal_resampled/' # original data
-    if args.process_data:
+    if not args.process_data:
         data_path = '../data/modelnet40_preprocessed/' # preprocessed data
     
     
