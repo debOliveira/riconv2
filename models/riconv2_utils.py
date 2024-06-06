@@ -141,47 +141,29 @@ def compute_LRA_one(group_xyz, weighting=False):
     return LRA # B N 3
     
 def compute_LRA(xyz, weighting=False, nsample = 64):
-    print(f"xyz shape: {xyz.shape}")
     dists = torch.cdist(xyz, xyz)
-    print(f"dists shape: {dists.shape}")
 
     dists, idx = torch.topk(dists, nsample, dim=-1, largest=False, sorted=False)
-    print(f"dists shape: {dists.shape}, idx shape: {idx.shape}")
     dists = dists.unsqueeze(-1)
-    print(f"dists shape: {dists.shape}")
 
     group_xyz = index_points(xyz, idx)
-    print(f"group_xyz shape: {group_xyz.shape}")
     group_xyz = group_xyz - xyz.unsqueeze(2)
-    print(f"group_xyz shape: {group_xyz.shape}")
 
     if weighting:
         dists_max, _ = dists.max(dim=2, keepdim=True)
-        print(f"dists_max shape: {dists_max.shape}")
         dists = dists_max - dists
-        print(f"dists shape: {dists.shape}")
         dists_sum = dists.sum(dim=2, keepdim=True)
-        print(f"dists_sum shape: {dists_sum.shape}")
         weights = dists / dists_sum
-        print(f"weights shape: {weights.shape}")
         weights[weights != weights] = 1.0
-        print(f"group_xyz.transpose(3,2) shape: {group_xyz.transpose(3,2).shape}, weights shape: {weights.shape}, group_xyz shape: {group_xyz.shape}")
         M = torch.matmul(group_xyz.transpose(3,2), weights*group_xyz)
-        print(f"M shape: {M.shape}")
     else:
         M = torch.matmul(group_xyz.transpose(3,2), group_xyz)
 
     eigen_values, vec = M.symeig(eigenvectors=True)
-    print(f"eigen_values shape: {eigen_values.shape}, vec shape: {vec.shape}")
 
     LRA = vec[:,:,:,0]
-    print(f"LRA shape: {LRA.shape}")
     LRA_length = torch.norm(LRA, dim=-1, keepdim=True)
-    print(f"LRA_length shape: {LRA_length.shape}")
     LRA = LRA / LRA_length
-    print(f"LRA shape: {LRA.shape}")
-        
-    exit()
     return LRA # B N 3
 
 def knn_point(nsample, xyz, new_xyz):
