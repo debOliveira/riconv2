@@ -5,14 +5,16 @@ Email: cszyzhang@gmail.com
 Website: https://wwww.zhiyuanzhang.net
 """
 import argparse
-import os
-from data_utils.ShapeNetDataLoader import PartNormalDataset
-import torch
-import logging
-import sys
 import importlib
-from tqdm import tqdm
+import logging
+import os
+import sys
+
 import numpy as np
+import torch
+from tqdm import tqdm
+
+from data_utils.ShapeNetDataLoader import PartNormalDataset
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BASE_DIR

@@ -1,5 +1,6 @@
 import os
 import sys
+
 from indoor3d_util import DATA_PATH, collect_point_label
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))

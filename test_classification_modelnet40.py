@@ -4,17 +4,18 @@ Date: Dec 2021
 Email: cszyzhang@gmail.com
 Website: https://wwww.zhiyuanzhang.net
 """
-import torch
-from data_utils.ModelNetDataLoader import ModelNetDataLoader
 import argparse
-import numpy as np
-import os
-import torch
-import logging
-from tqdm import tqdm
-import sys
 import importlib
+import logging
+import os
+import sys
+
+import numpy as np
+import torch
+from tqdm import tqdm
+
 import provider
+from data_utils.ModelNetDataLoader import ModelNetDataLoader
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BASE_DIR

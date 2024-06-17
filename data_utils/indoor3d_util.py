@@ -1,7 +1,8 @@
-import numpy as np
 import glob
 import os
 import sys
+
+import numpy as np
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)

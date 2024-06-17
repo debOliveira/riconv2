@@ -5,17 +5,19 @@ Email: cszyzhang@gmail.com
 Website: https://wwww.zhiyuanzhang.net
 """
 import argparse
-import os
-from data_utils.S3DISDataLoader import ScannetDatasetWholeScene
-from data_utils.indoor3d_util import g_label2color
-import torch
-import logging
-from pathlib import Path
-import sys
 import importlib
-from tqdm import tqdm
-import provider
+import logging
+import os
+import sys
+from pathlib import Path
+
 import numpy as np
+import torch
+from tqdm import tqdm
+
+import provider
+from data_utils.indoor3d_util import g_label2color
+from data_utils.S3DISDataLoader import ScannetDatasetWholeScene
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BASE_DIR

@@ -5,19 +5,21 @@ Email: cszyzhang@gmail.com
 Website: https://wwww.zhiyuanzhang.net
 """
 import argparse
-import os
-from data_utils.S3DISDataLoader import S3DISDataset
-import torch
 import datetime
-import logging
-from pathlib import Path
-import sys
 import importlib
+import logging
+import os
 import shutil
-from tqdm import tqdm
-import provider
-import numpy as np
+import sys
 import time
+from pathlib import Path
+
+import numpy as np
+import torch
+from tqdm import tqdm
+
+import provider
+from data_utils.S3DISDataLoader import S3DISDataset
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BASE_DIR

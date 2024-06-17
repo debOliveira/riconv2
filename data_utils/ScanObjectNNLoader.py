@@ -4,11 +4,13 @@ Date: Dec 2021
 Email: cszyzhang@gmail.com
 Website: https://wwww.zhiyuanzhang.net
 """
+import os
+import sys
+
+import h5py
+import numpy as np
 import torch
 import torch.utils.data as data
-import numpy as np
-import os, sys, h5py
-
 from torch.utils.data import Dataset
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -16,9 +18,9 @@ ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(BASE_DIR)
 sys.path.append(ROOT_DIR)
 sys.path.append(os.path.join(ROOT_DIR, 'models'))
-from models.pointnet2 import pointnet2_utils 
-from models.riconv2_utils import compute_LRA
-from models.riconv2_utils import index_points
+from models.pointnet2 import pointnet2_utils
+from models.riconv2_utils import compute_LRA, index_points
+
 
 class ScanObjectNN(Dataset):
     def __init__(self, root, args, split='train'):

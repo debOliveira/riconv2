@@ -5,22 +5,22 @@ Email: cszyzhang@gmail.com
 Website: https://wwww.zhiyuanzhang.net
 """
 
+import argparse
+import datetime
+import importlib
+import logging
 import os
+import shutil
 import sys
+from pathlib import Path
+
+import numpy as np
 import torch
 import torch.optim as optim
-import numpy as np
-
-import datetime
-import logging
-from data_utils.ScanObjectNNLoader import ScanObjectNN
-import provider
-import importlib
-import shutil
-import argparse
-
-from pathlib import Path
 from tqdm import tqdm
+
+import provider
+from data_utils.ScanObjectNNLoader import ScanObjectNN
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BASE_DIR

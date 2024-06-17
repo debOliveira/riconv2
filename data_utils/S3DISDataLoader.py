@@ -1,8 +1,8 @@
 import os
-import numpy as np
 
-from tqdm import tqdm
+import numpy as np
 from torch.utils.data import Dataset
+from tqdm import tqdm
 
 
 class S3DISDataset(Dataset):
@@ -178,7 +178,10 @@ if __name__ == '__main__':
     print('point data size:', point_data.__len__())
     print('point data 0 shape:', point_data.__getitem__(0)[0].shape)
     print('point label 0 shape:', point_data.__getitem__(0)[1].shape)
-    import torch, time, random
+    import random
+    import time
+
+    import torch
     manual_seed = 123
     random.seed(manual_seed)
     np.random.seed(manual_seed)

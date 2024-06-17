@@ -5,11 +5,12 @@ Email: cszyzhang@gmail.com
 Website: https://wwww.zhiyuanzhang.net
 """
 
+from time import time
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from riconv2_utils import RIConv2SetAbstraction, RIConv2FeaturePropagation_v2
-from time import time
+from riconv2_utils import RIConv2FeaturePropagation_v2, RIConv2SetAbstraction
 
 
 class get_model(nn.Module):
