@@ -60,13 +60,18 @@ def farthest_point_sample(point, npoint):
 
 
 def process_submap(filename, uniform, npoints, use_normals):
+    # load data
     data = pickle.load(open(filename, 'rb'))
     processed_points = []
     for i in range(len(data['points'])):
+        # for each cluster
         points = data['points'][i]
+        # sample points
         if uniform:
             points = farthest_point_sample(points, npoints)
+        # normalize points on unit sphere
         points = pc_normalize(points)
+        # compute normals
         if use_normals:
             normals = compute_LRA(Tensor(np.expand_dims(points, 0)), True,
                                   32).squeeze().numpy()
@@ -90,8 +95,11 @@ class SemKittiDataloader(Dataset):
         # check if dataset has been processed
         all_clusters_filename = os.path.join(root, f"all_clusters_{split}.pkl")
         if not os.path.exists(all_clusters_filename) or self.process_data:
+            # process data
             click.echo(
-                click.style('Processing data %s ...' % split, fg='yellow'))
+                click.style('Processing data %s ...' % split,
+                            fg='yellow',
+                            bold=True))
             data_list = joblib.Parallel(n_jobs=12, return_as="generator")(
                 joblib.delayed(process_submap)(filename, self.uniform,
                                                self.npoints, self.use_normals)
@@ -104,18 +112,18 @@ class SemKittiDataloader(Dataset):
                 self.labels.extend(data['labels'])
             # save processed data
             all_clusters = {'points': self.points, 'labels': self.labels}
-            click.echo(
-                click.style('Saving processed data %s ...' % split,
-                            fg='green'))
             pickle.dump(all_clusters, open(all_clusters_filename, 'wb'))
         else:
+            # load processed data
             click.echo(
                 click.style('Loading processed data %s ...' % split,
-                            fg='green'))
+                            fg='green',
+                            bold=True))
             all_clusters = pickle.load(open(all_clusters_filename, 'rb'))
             self.points = all_clusters['points']
             self.labels = all_clusters['labels']
 
+        # sanity check
         assert len(self.points) == len(self.labels)
 
         # compute label weights
@@ -129,20 +137,16 @@ class SemKittiDataloader(Dataset):
         # print stats
         click.echo(
             click.style(
-                f"Total number of {split} data: {len(self.points)}, Total number of classes: {self.num_classes}",
+                f"Loaded {split} dataset with {len(self.points)} samples",
                 fg='green'))
         click.echo(
-            click.style("Labels in dataset: %s" %
-                        str(unique_labels).replace('\n', ''),
-                        fg='green'))
+            click.style(
+                f" >> Labels in dataset: {np.array2string(unique_labels, precision=0, separator=', ')}",
+                fg='yellow'))
         click.echo(
-            click.style("Number of points per class: %s" %
-                        str(n_unique_labels).replace('\n', ''),
-                        fg='green'))
-        click.echo(
-            click.style("Label weights: %s" %
-                        str(self.label_weights).replace('\n', ''),
-                        fg='green'))
+            click.style(
+                f" >> Number of points per class: {np.array2string(n_unique_labels, precision=0, separator=', ')}",
+                fg='yellow'))
 
     def __len__(self):
         return len(self.labels)

@@ -8,12 +8,13 @@ Website: https://wwww.zhiyuanzhang.net
 import argparse
 import datetime
 import importlib
-import logging
 import os
 import shutil
 import sys
 from pathlib import Path
 
+import click
+from datetime import datetime
 import numpy as np
 import torch
 import torch.optim as optim
@@ -21,6 +22,8 @@ from tqdm import tqdm
 
 import provider
 from data_utils.SemKittiDataLoader import SemKittiDataloader
+
+import wandb
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BASE_DIR
@@ -51,7 +54,7 @@ def parse_args():
                         choices=[20, 28],
                         help='training on ModelNet10/40')
     parser.add_argument('--epoch',
-                        default=300,
+                        default=50,
                         type=int,
                         help='number of epoch in training')
     parser.add_argument('--learning_rate',
@@ -125,23 +128,26 @@ def test(model, loader, num_class=40):
         mean_correct.append(correct.item() / float(points.size()[0]))
 
     class_acc[:, 2] = class_acc[:, 0] / class_acc[:, 1]
-    print(f"Accuracy per class: {repr(class_acc[:,2])}")
+    click.echo(
+        click.style(
+            f">> Accuracy per class: {np.array2string(class_acc[:, 2], precision=3, separator=', ')}",
+            fg='cyan'))
+    class_acc_per_class = class_acc[:, 2]
     class_acc = np.mean(np.nan_to_num(class_acc[:, 2]))
     instance_acc = np.mean(mean_correct)
 
-    return instance_acc, class_acc
+    return instance_acc, class_acc, class_acc_per_class
 
 
 def main(args):
-
-    def log_string(str):
-        logger.info(str)
-        print(str)
-
     '''HYPER PARAMETER'''
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     '''CREATE DIR'''
-    timestr = str(datetime.datetime.now().strftime('%Y-%m-%d_%H-%M'))
+    timestr = str(datetime.now().strftime('%Y-%m-%d_%H-%M'))
+
+    # create wandb instance
+    os.environ["WANDB_SILENT"] = "true"
+    wandb.init(project='reloc-gnn-riconv-kitti', config=args, name=timestr)
     exp_dir = Path('./log/')
     exp_dir.mkdir(exist_ok=True)
     exp_dir = exp_dir.joinpath('classification_modelnet40')
@@ -157,27 +163,15 @@ def main(args):
     log_dir.mkdir(exist_ok=True)
     '''LOG'''
     args = parse_args()
-    logger = logging.getLogger("Model")
-    logger.setLevel(logging.INFO)
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    file_handler = logging.FileHandler('%s/%s.txt' % (log_dir, args.model))
-    file_handler.setLevel(logging.INFO)
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-    log_string('PARAMETER ...')
-    log_string(args)
+    click.echo(click.style(f">> Options: {args}", fg='blue'))
     '''DATA LOADING'''
-    log_string('Load dataset ...')
     data_path = '../data/kitti_clusters'
 
-    log_string('LOADING TRAIN ...')
     train_dataset = SemKittiDataloader(root=data_path,
                                        args=args,
                                        split='train',
                                        process_data=args.process_data)
     label_weights = torch.tensor(train_dataset.label_weights).float()
-    log_string('LOADING TEST ...')
     test_dataset = SemKittiDataloader(root=data_path,
                                       args=args,
                                       split='test',
@@ -206,13 +200,20 @@ def main(args):
         classifier = classifier.cuda()
         criterion = criterion.cuda()
 
+    click.echo(click.style("=" * 50, fg='green', bold=True))
     try:
         checkpoint = torch.load(str(exp_dir) + '/checkpoints/best_model.pth')
         start_epoch = checkpoint['epoch']
         classifier.load_state_dict(checkpoint['model_state_dict'])
-        log_string('Use pretrain model')
+        click.echo(
+            click.style('Using pretrain model %s ...' % str(exp_dir),
+                        fg='green',
+                        bold=True))
     except:
-        log_string('No existing model, starting training from scratch...')
+        click.echo(
+            click.style('No existing model, starting training from scratch...',
+                        fg='yellow'))
+
         start_epoch = 0
 
     if args.optimizer == 'Adam':
@@ -232,22 +233,19 @@ def main(args):
     global_step = 0
     best_instance_acc = 0.0
     best_class_acc = 0.0
-
-    log_string('Trainable Parameters: %f' % (count_parameters(classifier)))
+    step = 0
     '''TRANING'''
-    logger.info('Start training...')
     for epoch in range(start_epoch, args.epoch):
-        log_string('Epoch %d (%d/%s):' %
-                   (global_epoch + 1, epoch + 1, args.epoch))
         mean_correct = []
         classifier = classifier.train()
 
         #scheduler.step()
         for batch_id, (points, target) in tqdm(enumerate(trainDataLoader, 0),
                                                total=len(trainDataLoader),
-                                               smoothing=0.9):
+                                               smoothing=0.9,
+                                               colour='magenta',
+                                               desc=f"Training Epoch {epoch}"):
             optimizer.zero_grad()
-
             points = points.data.numpy()
             #points = provider.random_point_dropout(points)
             points[:, :, 0:3] = provider.random_scale_point_cloud(points[:, :,
@@ -263,30 +261,31 @@ def main(args):
 
             pred, _ = classifier(points)
 
-            if len(pred.shape) == 3:
-                target_2 = target.unsqueeze(-1).repeat(1, pred.shape[1])
-                target_2 = target_2.view(-1, 1)[:, 0]
-                pred_2 = pred.contiguous().view(-1,
-                                                num_class)  # N*K, num_class
-                loss = criterion(pred_2, target_2.long(), label_weights)
-                pred = pred.mean(dim=1)  # N, num_class
-            else:
-                loss = criterion(pred, target.long(), label_weights)
+            loss = criterion(pred, target.long(), label_weights)
 
             pred_choice = pred.data.max(1)[1]
             correct = pred_choice.eq(target.long().data).cpu().sum()
             mean_correct.append(correct.item() / float(points.size()[0]))
+            wandb.log(
+                {
+                    "Loss": loss.item(),
+                    "Training accuracy": mean_correct[-1],
+                },
+                step=step)
             loss.backward()
             optimizer.step()
             global_step += 1
+            step += 1
 
         train_instance_acc = np.mean(mean_correct)
-        log_string('Train Instance Accuracy: %f' % train_instance_acc)
+        click.echo(
+            click.style(f">> Train Instance Accuracy: {train_instance_acc}",
+                        fg='magenta'))
 
         with torch.no_grad():
-            instance_acc, class_acc = test(classifier.eval(),
-                                           testDataLoader,
-                                           num_class=num_class)
+            instance_acc, class_acc, _ = test(classifier.eval(),
+                                              testDataLoader,
+                                              num_class=num_class)
 
             if (instance_acc >= best_instance_acc):
                 best_instance_acc = instance_acc
@@ -294,15 +293,28 @@ def main(args):
 
             if (class_acc >= best_class_acc):
                 best_class_acc = class_acc
-            log_string('Test Instance Accuracy: %f, Class Accuracy: %f' %
-                       (instance_acc, class_acc))
-            log_string('Best Instance Accuracy: %f, Class Accuracy: %f' %
-                       (best_instance_acc, best_class_acc))
+            click.echo(
+                click.style(
+                    f">> Test Instance Accuracy: {instance_acc}, Class Accuracy: {class_acc}",
+                    fg='cyan'))
+            click.echo(
+                click.style(
+                    f">> Best Instance Accuracy: {best_instance_acc}, Class Accuracy: {best_class_acc}",
+                    fg='green'))
+            wandb.log(
+                {
+                    "Test Instance Accuracy": instance_acc,
+                    "Test Class Accuracy": class_acc,
+                    "Best Instance Accuracy": best_instance_acc,
+                    "Best Class Accuracy": best_class_acc,
+                },
+                step=step)
 
             if (instance_acc >= best_instance_acc):
-                logger.info('Save model...')
                 savepath = str(checkpoints_dir) + '/best_model.pth'
-                log_string('Saving at %s' % savepath)
+                click.echo(
+                    click.style(f">> Saving best model at {savepath}...",
+                                fg='green'))
                 state = {
                     'epoch': best_epoch,
                     'instance_acc': instance_acc,
@@ -312,8 +324,6 @@ def main(args):
                 }
                 torch.save(state, savepath)
             global_epoch += 1
-
-    logger.info('End of training...')
 
 
 if __name__ == '__main__':
