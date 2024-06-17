@@ -10,6 +10,7 @@ import warnings
 from pathlib import Path
 
 import click
+import pandas as pd
 import joblib
 import numpy as np
 from torch.utils.data import Dataset
@@ -27,11 +28,11 @@ from models.riconv2_utils import compute_LRA, index_points
 warnings.filterwarnings('ignore')
 
 
-def pc_normalize(pc, scale=0):
+def pc_normalize(pc, scale=0.0):
     centroid = np.mean(pc, axis=0)
     pc = pc - centroid
-    m = np.max(np.sqrt(np.sum(pc**2, axis=1)))
     if not scale:
+        m = np.max(np.sqrt(np.sum(pc**2, axis=1)))
         pc = pc / m
     else:
         pc = pc / scale
@@ -60,6 +61,17 @@ def farthest_point_sample(point, npoint):
         farthest = np.argmax(distance, -1)
     point = point[centroids.astype(np.int32)]
     return point
+
+
+def furthest_distance_of_points(points):
+    '''
+    Get the furthest distance of points
+    :param points: np.array, shape=(N, 3)
+    :return: float, furthest distance
+    '''
+    N = points.shape[0]
+    return np.max(
+        np.sqrt(np.sum((points - np.expand_dims(points, 1))**2, axis=-1)))
 
 
 def process_submap(filename, uniform, npoints, use_normals):
@@ -92,12 +104,14 @@ class SemKittiDataloader(Dataset):
         self.uniform = args.use_uniform_sample
         self.use_normals = args.use_normals
         self.points = []
-        self.labels = []
+        self.labels: list[int] = []
+        self.num_classes = 20  # number maximum of classes in Cylinder3d
 
         assert (split == 'train' or split == 'test')
+        click.echo(click.style('=' * 50, fg='green', bold=True))
         # check if dataset has been processed
-        all_clusters_filename = os.path.join(root, f"all_clusters_{split}.pkl")
-        if not os.path.exists(all_clusters_filename) or self.process_data:
+        points_filename = os.path.join(root, f"points_{split}.parquet")
+        if not os.path.exists(points_filename) or self.process_data:
             # process data
             click.echo(
                 click.style('Processing data %s ...' % split,
@@ -113,18 +127,54 @@ class SemKittiDataloader(Dataset):
                 assert data is not None
                 self.points.extend(data['points'])
                 self.labels.extend(data['labels'])
-            # save processed data
-            all_clusters = {'points': self.points, 'labels': self.labels}
-            pickle.dump(all_clusters, open(all_clusters_filename, 'wb'))
+            # get norm constant as the 95% percentile per class
+            norm_scales_per_class: dict[int, float] = {}
+            click.echo(
+                click.style('Computing normalization scales per class ...',
+                            fg='yellow',
+                            bold=True))
+            for i in tqdm(
+                    range(self.num_classes),
+                    colour='yellow',
+            ):
+                # get index of points in class
+                index_of_points_in_class = np.array([
+                    j for j in range(len(self.points)) if self.labels[j] == i
+                ])
+                if len(index_of_points_in_class) == 0:
+                    continue
+                # get furthest distance of points in class TODO: check this function
+                furthest_distance = [
+                    furthest_distance_of_points(self.points[j])
+                    for j in index_of_points_in_class
+                ]
+                # get 95% percentile
+                norm_scales_per_class[i] = np.quantile(furthest_distance,
+                                                       0.95).astype(float)
+            click.echo(
+                click.style(
+                    f" >> Normalization scales per class: {np.array2string(np.array([norm_scales_per_class[i] for i in norm_scales_per_class.keys()]), precision=2, separator=', ')}",
+                    fg='yellow'))
+            # normalize points
+            click.echo(
+                click.style('Normalizing points ...', fg='yellow', bold=True))
+            for i in tqdm(range(len(self.points)), colour='yellow'):
+                self.points[i] = pc_normalize(self.points[i],
+                                              scale=norm_scales_per_class[int(
+                                                  self.labels[i])])
         else:
             # load processed data
             click.echo(
                 click.style('Loading processed data %s ...' % split,
                             fg='green',
                             bold=True))
-            all_clusters = pickle.load(open(all_clusters_filename, 'rb'))
-            self.points = all_clusters['points']
-            self.labels = all_clusters['labels']
+            df_points = pd.read_parquet(points_filename)
+            df_labels = pd.read_parquet(
+                points_filename.replace('points', 'labels'))
+            self.labels = df_labels['labels'].tolist()
+            self.points = np.split(
+                df_points[["x", "y", "z"]].to_numpy(),
+                np.cumsum(df_labels['n_points'].values.tolist())[:-1])
 
         # sanity check
         assert len(self.points) == len(self.labels)
@@ -132,24 +182,43 @@ class SemKittiDataloader(Dataset):
         # compute label weights
         unique_labels, n_unique_labels = np.unique(self.labels,
                                                    return_counts=True)
-        self.num_classes = 20  # number maximum of classes in Cylinder3d
         self.label_weights = np.zeros(self.num_classes)
         for i in range(len(unique_labels)):
             self.label_weights[unique_labels[i]] = 1 / n_unique_labels[i]
 
+        # save processed data
+        click.echo(
+            click.style('Saving processed %s data...' % split,
+                        fg='green',
+                        bold=True))
+        if not os.path.exists(points_filename) or self.process_data:
+            flattened_points = np.concatenate(self.points, axis=0)
+            df_points = pd.DataFrame({
+                'x': flattened_points[:, 0],
+                'y': flattened_points[:, 1],
+                'z': flattened_points[:, 2],
+            })
+            df_labels = pd.DataFrame({
+                'labels': self.labels,
+                "n_points": [len(p) for p in self.points]
+            })
+            # save data
+            df_points.to_parquet(points_filename)
+            df_labels.to_parquet(points_filename.replace('points', 'labels'))
         # print stats
         click.echo(
             click.style(
                 f"Loaded {split} dataset with {len(self.points)} samples",
-                fg='green'))
+                fg='green',
+                bold=True))
         click.echo(
             click.style(
                 f" >> Labels in dataset: {np.array2string(unique_labels, precision=0, separator=', ')}",
-                fg='yellow'))
+                fg='green'))
         click.echo(
             click.style(
                 f" >> Number of points per class: {np.array2string(n_unique_labels, precision=0, separator=', ')}",
-                fg='yellow'))
+                fg='green'))
 
     def __len__(self):
         return len(self.labels)
