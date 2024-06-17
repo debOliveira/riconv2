@@ -253,7 +253,8 @@ def main(args):
             points[:, :, 0:3] = provider.random_scale_point_cloud(points[:, :,
                                                                          0:3])
             #points[:, :, 0:3] = provider.shift_point_cloud(points[:, :, 0:3])
-            points = provider.rotate_point_cloud_with_normal_so3(points)
+            # rotate pointcloud along z direction
+            points = provider.rotate_point_cloud_by_angle_with_normal(points)
             points = torch.Tensor(points)
 
             if not args.use_cpu:
