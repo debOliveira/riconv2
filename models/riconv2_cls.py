@@ -77,7 +77,7 @@ class get_model(nn.Module):
         x = self.drop1(F.relu(self.bn1(self.fc1(x))))
         x = self.drop2(F.relu(self.bn2(self.fc2(x))))
         x = self.fc3(x)
-        #x = F.log_softmax(x, -1)
+        x = F.log_softmax(x, -1)
 
         return x, l3_points
 
@@ -87,7 +87,7 @@ class get_loss(nn.Module):
     def __init__(self):
         super(get_loss, self).__init__()
 
-    def forward(self, pred, target):
-        total_loss = F.nll_loss(pred, target)
+    def forward(self, pred, target, weight=None):
+        total_loss = F.nll_loss(pred, target, weight=weight)
 
         return total_loss
