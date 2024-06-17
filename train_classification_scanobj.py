@@ -26,31 +26,73 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BASE_DIR
 sys.path.append(os.path.join(ROOT_DIR, 'models'))
 
+
 def parse_args():
     '''PARAMETERS'''
     parser = argparse.ArgumentParser('training')
-    parser.add_argument('--use_cpu', type=bool, default=False, help='use cpu mode')
-    parser.add_argument('--gpu', type=str, default='0', help='specify gpu device')
-    parser.add_argument('--batch_size', type=int, default=16, help='batch size in training')
-    parser.add_argument('--model', default='riconv2_cls', help='model name [default: pointnet_cls]')
-    parser.add_argument('--num_category', default=15, type=int, help='training on ModelNet10/40')
-    parser.add_argument('--epoch', default=300, type=int, help='number of epoch in training')
-    parser.add_argument('--learning_rate', default=0.001, type=float, help='learning rate in training')
-    parser.add_argument('--num_point', type=int, default=1024, help='Point Number')
-    parser.add_argument('--data_type', type=str, default='OBJ_NOBG', help='data type')
-    parser.add_argument('--optimizer', type=str, default='Adam', help='optimizer for training')
-    parser.add_argument('--log_dir', type=str, default=None, help='experiment root')
-    parser.add_argument('--decay_rate', type=float, default=1e-4, help='decay rate')
-    parser.add_argument('--use_uniform_sample', type=bool, default=True, help='use uniform sampiling')
+    parser.add_argument('--use_cpu',
+                        type=bool,
+                        default=False,
+                        help='use cpu mode')
+    parser.add_argument('--gpu',
+                        type=str,
+                        default='0',
+                        help='specify gpu device')
+    parser.add_argument('--batch_size',
+                        type=int,
+                        default=16,
+                        help='batch size in training')
+    parser.add_argument('--model',
+                        default='riconv2_cls',
+                        help='model name [default: pointnet_cls]')
+    parser.add_argument('--num_category',
+                        default=15,
+                        type=int,
+                        help='training on ModelNet10/40')
+    parser.add_argument('--epoch',
+                        default=300,
+                        type=int,
+                        help='number of epoch in training')
+    parser.add_argument('--learning_rate',
+                        default=0.001,
+                        type=float,
+                        help='learning rate in training')
+    parser.add_argument('--num_point',
+                        type=int,
+                        default=1024,
+                        help='Point Number')
+    parser.add_argument('--data_type',
+                        type=str,
+                        default='OBJ_NOBG',
+                        help='data type')
+    parser.add_argument('--optimizer',
+                        type=str,
+                        default='Adam',
+                        help='optimizer for training')
+    parser.add_argument('--log_dir',
+                        type=str,
+                        default=None,
+                        help='experiment root')
+    parser.add_argument('--decay_rate',
+                        type=float,
+                        default=1e-4,
+                        help='decay rate')
+    parser.add_argument('--use_uniform_sample',
+                        type=bool,
+                        default=True,
+                        help='use uniform sampiling')
     return parser.parse_args()
+
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
+
 def inplace_relu(m):
     classname = m.__class__.__name__
     if classname.find('ReLU') != -1:
-        m.inplace=True
+        m.inplace = True
+
 
 def test(model, loader, num_class=15):
     mean_correct = []
@@ -67,8 +109,10 @@ def test(model, loader, num_class=15):
         pred_choice = pred.data.max(1)[1]
 
         for cat in np.unique(target.cpu()):
-            classacc = pred_choice[target == cat].eq(target[target == cat].long().data).cpu().sum()
-            class_acc[cat, 0] += classacc.item() / float(points[target == cat].size()[0])
+            classacc = pred_choice[target == cat].eq(
+                target[target == cat].long().data).cpu().sum()
+            class_acc[cat, 0] += classacc.item() / float(
+                points[target == cat].size()[0])
             class_acc[cat, 1] += 1
 
         correct = pred_choice.eq(target.long().data).cpu().sum()
@@ -82,13 +126,13 @@ def test(model, loader, num_class=15):
 
 
 def main(args):
+
     def log_string(str):
         logger.info(str)
         print(str)
 
     '''HYPER PARAMETER'''
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-
     '''CREATE DIR'''
     timestr = str(datetime.datetime.now().strftime('%Y-%m-%d_%H-%M'))
     exp_dir = Path('./log/')
@@ -104,34 +148,39 @@ def main(args):
     checkpoints_dir.mkdir(exist_ok=True)
     log_dir = exp_dir.joinpath('logs/')
     log_dir.mkdir(exist_ok=True)
-
     '''LOG'''
     args = parse_args()
     logger = logging.getLogger("Model")
     logger.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     file_handler = logging.FileHandler('%s/%s.txt' % (log_dir, args.model))
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
     log_string('PARAMETER ...')
     log_string(args)
-
     '''DATA LOADING'''
     log_string('Load dataset ...')
     if args.data_type == 'OBJ_NOBG':
         data_path = '../data/scanobjectnn/main_split_nobg/'
-    elif args.data_type == 'hardest' or 'OBJ_BG': 
+    elif args.data_type == 'hardest' or 'OBJ_BG':
         data_path = '../data/scanobjectnn/main_split/'
     else:
         raise NotImplementedError()
 
     test_dataset = ScanObjectNN(root=data_path, args=args, split='test')
     train_dataset = ScanObjectNN(root=data_path, args=args, split='train')
-    
-    trainDataLoader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=10, drop_last=True)
-    testDataLoader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=10)
 
+    trainDataLoader = torch.utils.data.DataLoader(train_dataset,
+                                                  batch_size=args.batch_size,
+                                                  shuffle=True,
+                                                  num_workers=10,
+                                                  drop_last=True)
+    testDataLoader = torch.utils.data.DataLoader(test_dataset,
+                                                 batch_size=args.batch_size,
+                                                 shuffle=False,
+                                                 num_workers=10)
     '''MODEL LOADING'''
     num_class = args.num_category
     model = importlib.import_module(args.model)
@@ -157,33 +206,37 @@ def main(args):
         start_epoch = 0
 
     if args.optimizer == 'Adam':
-        optimizer = torch.optim.Adam(
-            classifier.parameters(),
-            lr=args.learning_rate,
-            betas=(0.9, 0.999),
-            eps=1e-08,
-            weight_decay=args.decay_rate
-        )
+        optimizer = torch.optim.Adam(classifier.parameters(),
+                                     lr=args.learning_rate,
+                                     betas=(0.9, 0.999),
+                                     eps=1e-08,
+                                     weight_decay=args.decay_rate)
     else:
-        optimizer = torch.optim.SGD(classifier.parameters(), lr=0.01, momentum=0.9)
+        optimizer = torch.optim.SGD(classifier.parameters(),
+                                    lr=0.01,
+                                    momentum=0.9)
 
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.7)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
+                                                step_size=20,
+                                                gamma=0.7)
     global_epoch = 0
     global_step = 0
     best_instance_acc = 0.0
     best_class_acc = 0.0
 
     log_string('Trainable Parameters: %f' % (count_parameters(classifier)))
-
     '''TRANING'''
     logger.info('Start training...')
     for epoch in range(start_epoch, args.epoch):
-        log_string('Epoch %d (%d/%s):' % (global_epoch + 1, epoch + 1, args.epoch))
+        log_string('Epoch %d (%d/%s):' %
+                   (global_epoch + 1, epoch + 1, args.epoch))
         mean_correct = []
         classifier = classifier.train()
 
         scheduler.step()
-        for batch_id, (points, target) in tqdm(enumerate(trainDataLoader, 0), total=len(trainDataLoader), smoothing=0.9):
+        for batch_id, (points, target) in tqdm(enumerate(trainDataLoader, 0),
+                                               total=len(trainDataLoader),
+                                               smoothing=0.9):
             optimizer.zero_grad()
 
             points = points.data.numpy()
@@ -193,13 +246,14 @@ def main(args):
                 points, target = points.cuda(), target.cuda()
 
             pred, trans_feat = classifier(points)
-            
+
             if len(pred.shape) == 3:
-                target_2 = target.unsqueeze(-1).repeat(1,pred.shape[1])
+                target_2 = target.unsqueeze(-1).repeat(1, pred.shape[1])
                 target_2 = target_2.view(-1, 1)[:, 0]
-                pred_2 = pred.contiguous().view(-1, num_class)  # N*K, num_class
+                pred_2 = pred.contiguous().view(-1,
+                                                num_class)  # N*K, num_class
                 loss = criterion(pred_2, target_2.long())
-                pred = pred.mean(dim=1) # N, num_class
+                pred = pred.mean(dim=1)  # N, num_class
             else:
                 loss = criterion(pred, target.long())
 
@@ -214,7 +268,9 @@ def main(args):
         log_string('Train Instance Accuracy: %f' % train_instance_acc)
 
         with torch.no_grad():
-            instance_acc, class_acc = test(classifier.eval(), testDataLoader, num_class=num_class)
+            instance_acc, class_acc = test(classifier.eval(),
+                                           testDataLoader,
+                                           num_class=num_class)
 
             if (instance_acc >= best_instance_acc):
                 best_instance_acc = instance_acc
@@ -222,8 +278,10 @@ def main(args):
 
             if (class_acc >= best_class_acc):
                 best_class_acc = class_acc
-            log_string('Test Instance Accuracy: %f, Class Accuracy: %f' % (instance_acc, class_acc))
-            log_string('Best Instance Accuracy: %f, Class Accuracy: %f' % (best_instance_acc, best_class_acc))
+            log_string('Test Instance Accuracy: %f, Class Accuracy: %f' %
+                       (instance_acc, class_acc))
+            log_string('Best Instance Accuracy: %f, Class Accuracy: %f' %
+                       (best_instance_acc, best_class_acc))
 
             if (instance_acc >= best_instance_acc):
                 logger.info('Save model...')

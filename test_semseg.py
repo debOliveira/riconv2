@@ -187,18 +187,19 @@ def main(args):
                     points_3d = torch_data.numpy()[:, :, :3][0]
                     normals = torch_data.numpy()[:, :, 3:][0]
                     torch_data = torch_data.float().cuda()
-                    # torch_data = torch_data.transpose(2, 1)                
+                    # torch_data = torch_data.transpose(2, 1)
                     import matplotlib.pyplot as plt
                     fig = plt.figure()
                     ax = fig.add_subplot(111, projection='3d')
-                    ax.scatter(points_3d[:, 0], points_3d[:, 1], points_3d[:, 2])
+                    ax.scatter(points_3d[:, 0], points_3d[:, 1], points_3d[:,
+                                                                           2])
                     ax.quiver(points_3d[:, 0],
-                            points_3d[:, 1],
-                            points_3d[:, 2],
-                            normals[:, 0],
-                            normals[:, 1],
-                            normals[:, 2],
-                            length=0.05)
+                              points_3d[:, 1],
+                              points_3d[:, 2],
+                              normals[:, 0],
+                              normals[:, 1],
+                              normals[:, 2],
+                              length=0.05)
                     plt.savefig(f"point_clouds/{0}.png")
                     plt.axis('equal')
                     plt.show()
