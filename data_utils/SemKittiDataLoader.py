@@ -27,11 +27,14 @@ from models.riconv2_utils import compute_LRA, index_points
 warnings.filterwarnings('ignore')
 
 
-def pc_normalize(pc):
+def pc_normalize(pc, scale=0):
     centroid = np.mean(pc, axis=0)
     pc = pc - centroid
     m = np.max(np.sqrt(np.sum(pc**2, axis=1)))
-    pc = pc / m
+    if not scale:
+        pc = pc / m
+    else:
+        pc = pc / scale
     return pc
 
 
@@ -70,7 +73,7 @@ def process_submap(filename, uniform, npoints, use_normals):
         if uniform:
             points = farthest_point_sample(points, npoints)
         # normalize points on unit sphere
-        points = pc_normalize(points)
+        # points = pc_normalize(points)
         # compute normals
         if use_normals:
             normals = compute_LRA(Tensor(np.expand_dims(points, 0)), True,
@@ -152,6 +155,7 @@ class SemKittiDataloader(Dataset):
         return len(self.labels)
 
     def _get_item(self, index):
+        # TODO: add normalization
         return self.points[index], self.labels[index]
 
     def __getitem__(self, index):
