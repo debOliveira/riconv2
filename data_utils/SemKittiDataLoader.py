@@ -135,6 +135,16 @@ def normalize_points_in_pickle(filename: Path, scale: float) -> None:
     pickle.dump(data, open(filename, 'wb'))
 
 
+def return_number_of_points_per_label(filename: Path) -> int:
+    '''
+    Return the number of points per label
+    :param filename: Path, file to process
+    :return: int, number of points
+    '''
+    data = pickle.load(open(filename, 'rb'))
+    return data['points'].shape[0]
+
+
 class SemKittiDataloader(Dataset):
 
     def __init__(self, root, args, split='train', process_data=False):
@@ -208,17 +218,27 @@ class SemKittiDataloader(Dataset):
             for p in self.path_list
         ]
 
+        # load total number of points per label
+        total_points_per_label = np.zeros(self.num_classes)
+        for i in range(self.num_classes):
+            generator = joblib.Parallel(n_jobs=12, return_as="generator")(
+                joblib.delayed(return_number_of_points_per_label)(filename)
+                for filename in sorted(
+                    Path(preprocessed_output_folder).rglob(f'*label{i}.pkl')))
+            total_points_per_label[i] = sum(list(generator))  # type: ignore
+
         # compute label weights
-        unique_labels, n_unique_labels = np.unique(label_names,
-                                                   return_counts=True)
+        unique_labels = np.unique(label_names)
         self.label_weights = np.zeros(self.num_classes)
         for i in range(len(unique_labels)):
-            self.label_weights[unique_labels[i]] = 1 / n_unique_labels[i]
+            self.label_weights[unique_labels[i]] = sum(
+                total_points_per_label) / total_points_per_label[
+                    unique_labels[i]]
 
         # print stats
         click.echo(
             click.style(
-                f"Loaded {split} dataset with {len(self.path_list)} samples",
+                f"Loaded {split} dataset with {len(self.path_list)} clusters",
                 fg='green',
                 bold=True))
         click.echo(
@@ -227,7 +247,11 @@ class SemKittiDataloader(Dataset):
                 fg='green'))
         click.echo(
             click.style(
-                f" >> Number of points per class: {np.array2string(n_unique_labels, precision=0, separator=', ')}",
+                f" >> Label weights: {np.array2string(self.label_weights, precision=3, separator=', ')}",
+                fg='green'))
+        click.echo(
+            click.style(
+                f" >> Number of points per class: {np.array2string(total_points_per_label, precision=0, separator=', ')}",
                 fg='green'))
 
     def __len__(self):
