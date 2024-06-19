@@ -69,18 +69,27 @@ def furthest_distance_of_points(points):
     :param points: np.array, shape=(N, 3)
     :return: float, furthest distance
     '''
-    N = points.shape[0]
     return np.max(
         np.sqrt(np.sum((points - np.expand_dims(points, 1))**2, axis=-1)))
 
 
-def process_submap(filename, uniform, npoints, use_normals):
+def process_submap(filename: Path, uniform: bool, npoints: int,
+                   use_normals: bool) -> None:
+    """
+    Process a submap
+    :param filename: Path, file to process
+    :param uniform: bool, whether to use uniform sampling
+    :param npoints: int, number of points to sample
+    :param use_normals: bool, whether to use normals
+    """
     # load data
     data = pickle.load(open(filename, 'rb'))
-    processed_points = []
     for i in range(len(data['points'])):
         # for each cluster
         points = data['points'][i]
+        if len(points.shape) < 2:
+            continue
+        label = data['labels'][i]
         # sample points
         if uniform:
             points = farthest_point_sample(points, npoints)
@@ -91,8 +100,39 @@ def process_submap(filename, uniform, npoints, use_normals):
             normals = compute_LRA(Tensor(np.expand_dims(points, 0)), True,
                                   32).squeeze().numpy()
             points = np.concatenate((points, normals), axis=1)
-        processed_points.append(points)
-    return {"points": processed_points, "labels": data['labels']}
+        # create data
+        data = {
+            "points": points,
+            "labels": label,
+            "furthest_distance": furthest_distance_of_points(points)
+        }
+        # save pickle
+        processed_filename = filename.parents[1] / 'processed' / str(
+            filename).split('/')[-2] / filename.name.replace(
+                '.pkl', f'_cluster{i}_label{label}.pkl')
+        pickle.dump(data, open(processed_filename, 'wb'))
+
+
+def read_furthest_distance(filename: Path) -> float:
+    '''
+    Read the furthest distance of points from a file
+    :param filename: Path, file to read
+    :return: float, furthest distance
+    '''
+    data = pickle.load(open(filename, 'rb'))
+    return data['furthest_distance']
+
+
+def normalize_points_in_pickle(filename: Path, scale: float) -> None:
+    '''
+    Normalize points in a pickle file
+    :param filename: Path, file to process
+    :param scale: float, scale to normalize points
+    '''
+    assert scale > 0
+    data = pickle.load(open(filename, 'rb'))
+    data['points'] = pc_normalize(data['points'], scale)
+    pickle.dump(data, open(filename, 'wb'))
 
 
 class SemKittiDataloader(Dataset):
@@ -103,54 +143,46 @@ class SemKittiDataloader(Dataset):
         self.process_data = process_data
         self.uniform = args.use_uniform_sample
         self.use_normals = args.use_normals
-        self.points = []
-        self.labels: list[int] = []
+        self.path_list = []
         self.num_classes = 20  # number maximum of classes in Cylinder3d
 
         assert (split == 'train' or split == 'test')
         click.echo(click.style('=' * 50, fg='green', bold=True))
         # check if dataset has been processed
-        points_filename = os.path.join(root, f"points_{split}.parquet")
-        if not os.path.exists(points_filename) or self.process_data:
+        preprocessed_output_folder = os.path.join(root, f"processed/{split}")
+        if not os.path.exists(preprocessed_output_folder) or self.process_data:
+            # create output folder
+            os.makedirs(preprocessed_output_folder, exist_ok=True)
             # process data
             click.echo(
                 click.style('Processing data %s ...' % split,
                             fg='yellow',
                             bold=True))
-            data_list = joblib.Parallel(n_jobs=12, return_as="generator")(
+            joblib.Parallel(n_jobs=12)(
                 joblib.delayed(process_submap)(filename, self.uniform,
                                                self.npoints, self.use_normals)
                 for filename in tqdm(sorted(
                     Path(f"{root}/{split}").rglob('*.pkl')),
                                      colour='yellow'))
-            for data in data_list:
-                assert data is not None
-                self.points.extend(data['points'])
-                self.labels.extend(data['labels'])
             # get norm constant as the 95% percentile per class
             norm_scales_per_class: dict[int, float] = {}
             click.echo(
                 click.style('Computing normalization scales per class ...',
                             fg='yellow',
                             bold=True))
-            for i in tqdm(
-                    range(self.num_classes),
-                    colour='yellow',
-            ):
-                # get index of points in class
-                index_of_points_in_class = np.array([
-                    j for j in range(len(self.points)) if self.labels[j] == i
-                ])
-                if len(index_of_points_in_class) == 0:
+            for i in tqdm(range(self.num_classes), colour='yellow'):
+                # read furthest distance per class
+                furthest_distances_all_clusters = joblib.Parallel(
+                    n_jobs=12, return_as="list")(
+                        joblib.delayed(read_furthest_distance)(filename)
+                        for filename in sorted(
+                            Path(preprocessed_output_folder).rglob(
+                                f'*label{i}.pkl')))
+                if len(furthest_distances_all_clusters) == 0:  # type: ignore
                     continue
-                # get furthest distance of points in class TODO: check this function
-                furthest_distance = [
-                    furthest_distance_of_points(self.points[j])
-                    for j in index_of_points_in_class
-                ]
-                # get 95% percentile
-                norm_scales_per_class[i] = np.quantile(furthest_distance,
-                                                       0.95).astype(float)
+                norm_scales_per_class[i] = float(
+                    np.percentile(np.array(furthest_distances_all_clusters),
+                                  95))
             click.echo(
                 click.style(
                     f" >> Normalization scales per class: {np.array2string(np.array([norm_scales_per_class[i] for i in norm_scales_per_class.keys()]), precision=2, separator=', ')}",
@@ -158,57 +190,35 @@ class SemKittiDataloader(Dataset):
             # normalize points
             click.echo(
                 click.style('Normalizing points ...', fg='yellow', bold=True))
-            for i in tqdm(range(len(self.points)), colour='yellow'):
-                self.points[i] = pc_normalize(self.points[i],
-                                              scale=norm_scales_per_class[int(
-                                                  self.labels[i])])
-        else:
-            # load processed data
-            click.echo(
-                click.style('Loading processed data %s ...' % split,
-                            fg='green',
-                            bold=True))
-            df_points = pd.read_parquet(points_filename)
-            df_labels = pd.read_parquet(
-                points_filename.replace('points', 'labels'))
-            self.labels = df_labels['labels'].tolist()
-            self.points = np.split(
-                df_points[["x", "y", "z"]].to_numpy(),
-                np.cumsum(df_labels['n_points'].values.tolist())[:-1])
+            joblib.Parallel(n_jobs=12)(
+                joblib.delayed(normalize_points_in_pickle)(
+                    filename, norm_scales_per_class[int(
+                        str(filename.name).split('_')[-1].split('.')[0][5:])])
+                for filename in tqdm(sorted(
+                    Path(preprocessed_output_folder).rglob('*.pkl')),
+                                     colour='yellow'))
 
-        # sanity check
-        assert len(self.points) == len(self.labels)
+        # load paths
+        self.path_list = sorted(
+            Path(preprocessed_output_folder).rglob('*.pkl'))  # type: ignore
+
+        # get label names
+        label_names = [
+            int(str(p.name).split('_')[-1].split('.')[0][5:])
+            for p in self.path_list
+        ]
 
         # compute label weights
-        unique_labels, n_unique_labels = np.unique(self.labels,
+        unique_labels, n_unique_labels = np.unique(label_names,
                                                    return_counts=True)
         self.label_weights = np.zeros(self.num_classes)
         for i in range(len(unique_labels)):
             self.label_weights[unique_labels[i]] = 1 / n_unique_labels[i]
 
-        # save processed data
-        click.echo(
-            click.style('Saving processed %s data...' % split,
-                        fg='green',
-                        bold=True))
-        if not os.path.exists(points_filename) or self.process_data:
-            flattened_points = np.concatenate(self.points, axis=0)
-            df_points = pd.DataFrame({
-                'x': flattened_points[:, 0],
-                'y': flattened_points[:, 1],
-                'z': flattened_points[:, 2],
-            })
-            df_labels = pd.DataFrame({
-                'labels': self.labels,
-                "n_points": [len(p) for p in self.points]
-            })
-            # save data
-            df_points.to_parquet(points_filename)
-            df_labels.to_parquet(points_filename.replace('points', 'labels'))
         # print stats
         click.echo(
             click.style(
-                f"Loaded {split} dataset with {len(self.points)} samples",
+                f"Loaded {split} dataset with {len(self.path_list)} samples",
                 fg='green',
                 bold=True))
         click.echo(
@@ -221,11 +231,14 @@ class SemKittiDataloader(Dataset):
                 fg='green'))
 
     def __len__(self):
-        return len(self.labels)
+        return len(self.path_list)
 
     def _get_item(self, index):
-        # TODO: add normalization
-        return self.points[index], self.labels[index]
+        # read data
+        data = pickle.load(open(self.path_list[index], 'rb'))
+        points = data['points']
+        label = data['labels']
+        return points, label
 
     def __getitem__(self, index):
         return self._get_item(index)
