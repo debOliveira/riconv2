@@ -201,20 +201,19 @@ def main(args):
         criterion = criterion.cuda()
 
     click.echo(click.style("=" * 50, fg='green', bold=True))
-    try:
-        checkpoint = torch.load(str(exp_dir) + '/checkpoints/best_model.pth')
-        start_epoch = checkpoint['epoch']
-        classifier.load_state_dict(checkpoint['model_state_dict'])
-        click.echo(
-            click.style('Using pretrain model %s ...' % str(exp_dir),
-                        fg='green',
-                        bold=True))
-    except:
-        click.echo(
-            click.style('No existing model, starting training from scratch...',
-                        fg='yellow'))
-
-        start_epoch = 0
+    checkpoint = torch.load(
+        './log/classification_modelnet40/pretrained/checkpoints/best_model.pth'
+    )
+    start_epoch = 0
+    classifier_dict = classifier.state_dict()
+    checkpoint_dict = checkpoint['model_state_dict']
+    checkpoint_dict["fc3.weight"] = classifier_dict["fc3.weight"]
+    checkpoint_dict["fc3.bias"] = classifier_dict["fc3.bias"]
+    classifier.load_state_dict(checkpoint_dict)
+    click.echo(
+        click.style('Using pretrain model %s ...' % str(exp_dir),
+                    fg='green',
+                    bold=True))
 
     if args.optimizer == 'Adam':
         optimizer = torch.optim.Adam(classifier.parameters(),

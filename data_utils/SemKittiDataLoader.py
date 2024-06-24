@@ -86,9 +86,7 @@ def process_submap(filename: Path, uniform: bool, npoints: int,
     data = pickle.load(open(filename, 'rb'))
     for i in range(len(data['points'])):
         # for each cluster
-        points = data['points'][i]
-        if len(points.shape) < 2:
-            continue
+        points = data['points'][i].reshape(-1, 3)
         label = data['labels'][i]
         # sample points
         if uniform:
@@ -101,7 +99,7 @@ def process_submap(filename: Path, uniform: bool, npoints: int,
                                   32).squeeze().numpy()
             points = np.concatenate((points, normals), axis=1)
         # create data
-        data = {
+        item = {
             "points": points,
             "labels": label,
             "furthest_distance": furthest_distance_of_points(points)
@@ -110,7 +108,7 @@ def process_submap(filename: Path, uniform: bool, npoints: int,
         processed_filename = filename.parents[1] / 'processed' / str(
             filename).split('/')[-2] / filename.name.replace(
                 '.pkl', f'_cluster{i}_label{label}.pkl')
-        pickle.dump(data, open(processed_filename, 'wb'))
+        pickle.dump(item, open(processed_filename, 'wb'))
 
 
 def read_furthest_distance(filename: Path) -> float:
@@ -164,11 +162,11 @@ class SemKittiDataloader(Dataset):
             # create output folder
             os.makedirs(preprocessed_output_folder, exist_ok=True)
             # process data
-            click.echo(
+            """click.echo(
                 click.style('Processing data %s ...' % split,
                             fg='yellow',
                             bold=True))
-            joblib.Parallel(n_jobs=12)(
+            joblib.Parallel(n_jobs=-1)(
                 joblib.delayed(process_submap)(filename, self.uniform,
                                                self.npoints, self.use_normals)
                 for filename in tqdm(sorted(
@@ -200,50 +198,70 @@ class SemKittiDataloader(Dataset):
             # normalize points
             click.echo(
                 click.style('Normalizing points ...', fg='yellow', bold=True))
-            joblib.Parallel(n_jobs=12)(
+            joblib.Parallel(n_jobs=-1)(
                 joblib.delayed(normalize_points_in_pickle)(
                     filename, norm_scales_per_class[int(
                         str(filename.name).split('_')[-1].split('.')[0][5:])])
                 for filename in tqdm(sorted(
                     Path(preprocessed_output_folder).rglob('*.pkl')),
-                                     colour='yellow'))
+                                     colour='yellow'))"""
+            # save number of points per class
+            total_points_per_label = np.zeros(self.num_classes)
+            for i in range(self.num_classes):
+                generator = joblib.Parallel(n_jobs=-1, return_as="generator")(
+                    joblib.delayed(return_number_of_points_per_label)(filename)
+                    for filename in tqdm(
+                        sorted(
+                            Path(preprocessed_output_folder).rglob(
+                                f'*label{i}.pkl')),
+                        colour='yellow',
+                        desc=f"Counting points per label {i}"))
+                for value in generator:
+                    total_points_per_label[i] += value
+            # compute label weights
+            unique_labels = np.unique([
+                int(str(p.name).split('_')[-1].split('.')[0][5:])
+                for p in sorted(
+                    Path(preprocessed_output_folder).rglob('*cluster*.pkl'))
+            ])
+            label_weights = np.zeros(self.num_classes)
+            for i in range(len(unique_labels)):
+                label_weights[unique_labels[i]] = sum(
+                    total_points_per_label) / total_points_per_label[
+                        unique_labels[i]]
+            # save label weights
+            pickle.dump(
+                total_points_per_label,
+                open(
+                    f"{preprocessed_output_folder}/total_points_per_label.pkl",
+                    'wb'))
+            pickle.dump(
+                label_weights,
+                open(f"{preprocessed_output_folder}/label_weights.pkl", 'wb'))
 
         # load paths
         self.path_list = sorted(
-            Path(preprocessed_output_folder).rglob('*.pkl'))  # type: ignore
-
-        # get label names
-        label_names = [
-            int(str(p.name).split('_')[-1].split('.')[0][5:])
-            for p in self.path_list
-        ]
-
-        # load total number of points per label
-        total_points_per_label = np.zeros(self.num_classes)
-        for i in range(self.num_classes):
-            generator = joblib.Parallel(n_jobs=12, return_as="generator")(
-                joblib.delayed(return_number_of_points_per_label)(filename)
-                for filename in sorted(
-                    Path(preprocessed_output_folder).rglob(f'*label{i}.pkl')))
-            total_points_per_label[i] = sum(list(generator))  # type: ignore
-
-        # compute label weights
-        unique_labels = np.unique(label_names)
-        self.label_weights = np.zeros(self.num_classes)
-        for i in range(len(unique_labels)):
-            self.label_weights[unique_labels[i]] = sum(
-                total_points_per_label) / total_points_per_label[
-                    unique_labels[i]]
-
-        # print stats
+            Path(preprocessed_output_folder).rglob(
+                '*cluster*.pkl'))  # type: ignore
         click.echo(
             click.style(
                 f"Loaded {split} dataset with {len(self.path_list)} clusters",
                 fg='green',
                 bold=True))
+
+        # get weights
+        self.label_weights = pickle.load(
+            open(f"{preprocessed_output_folder}/label_weights.pkl", 'rb'))
+        total_points_per_label = pickle.load(
+            open(f"{preprocessed_output_folder}/total_points_per_label.pkl",
+                 'rb'))
+        valid_labels = np.where(total_points_per_label > 0)[0]
+
+        # print stats
+        np.set_printoptions(suppress=True)
         click.echo(
             click.style(
-                f" >> Labels in dataset: {np.array2string(unique_labels, precision=0, separator=', ')}",
+                f" >> Labels in dataset: {np.array2string(valid_labels, precision=0, separator=', ')}",
                 fg='green'))
         click.echo(
             click.style(
